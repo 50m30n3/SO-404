@@ -29,9 +29,9 @@ int done;
 
 unsigned int samplerate;
 double phase, freq, tfreq, max;
-double amp, lastsample, sample;
+double amp, env, lastsample, sample;
 double fcutoff, fspeed, fpos, freso;
-unsigned int release, envmod, cutoff, resonance, volume, portamento;
+unsigned int vel, release, envmod, cutoff, resonance, volume, portamento;
 unsigned int cdelay;
 int noteson;
 
@@ -63,14 +63,15 @@ int process( jack_nframes_t nframes, void *arg )
 			freq = ((portamento/127.0)*0.9)*freq + (1.0-((portamento/127.0)*0.9))*tfreq;
 			
 			if( noteson > 0 )
-				amp *= 0.8+(release/127.0)/5.1;
+				amp *= 0.99;
 			else
 				amp *= 0.5;
-			
-			fcutoff = pow(cutoff/127.0,5.0)+amp*amp*pow(envmod/128.0,2.0);
-			if( fcutoff > 1.0 ) fcutoff = 1.0;
-			fcutoff = sin(fcutoff*M_PI/2.0);
-			freso = pow(resonance/127.0,0.25);
+
+			env *= 0.8+pow(release/127.0, 0.25)/5.1;
+
+			fcutoff = pow(cutoff/127.0,2.0) + pow(env,2.0)*pow(envmod/127.0,2.0);
+			fcutoff = tanh(fcutoff);
+			freso = pow(resonance/130.0,0.25);
 			cdelay = samplerate/100;
 		}
 		cdelay--;
@@ -80,8 +81,11 @@ int process( jack_nframes_t nframes, void *arg )
 		phase++;
 		if( phase >= max )
 		phase -= max;
-		
-		sample *= amp;
+
+		if( vel > 100 )
+			sample *= env;
+		else
+			sample *= amp;
 
 		fpos += fspeed;
 		fspeed *= freso;
@@ -106,7 +110,7 @@ int main( int argc, char *argv[] )
 	snd_seq_event_t *midievent;
 	int channel, midiport;
 
-	puts( "SO-404 v.1.1 by 50m30n3 2009-2011" );
+	puts( "SO-404 v.1.2 by 50m30n3 2009-2011" );
 
 	if( argc > 1 )
 		channel = atoi( argv[1] );
@@ -134,6 +138,8 @@ int main( int argc, char *argv[] )
 	freq = 440.0;
 	tfreq = 440.0;
 	amp = 0.0;
+	env = 0.0;
+	vel = 0;
 	fcutoff = 0.0;
 	fspeed = 0.0;
 	fpos = 0.0;
@@ -189,7 +195,9 @@ int main( int argc, char *argv[] )
 					if( noteson == 0 )
 					{
 						freq = tfreq = 440.0*pow( 2.0, (midievent->data.note.note-69) / 12.0 );
-						amp = midievent->data.note.velocity/127.0;
+						amp = 1.0;
+						vel = midievent->data.note.velocity;
+						env = vel/127.0;
 						cdelay = 0;
 					}
 					else
@@ -202,6 +210,8 @@ int main( int argc, char *argv[] )
 				else if( ( midievent->type == SND_SEQ_EVENT_NOTEOFF ) && ( midievent->data.note.channel == channel ) )
 				{
 					noteson -= 1;
+					if( noteson < 0 )
+						noteson = 0;
 				}
 				else if( ( midievent->type == SND_SEQ_EVENT_CONTROLLER ) && ( midievent->data.control.channel == channel ) )
 				{
